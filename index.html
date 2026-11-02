@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#111111">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Corre">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="styles.css">
+<title>Corre con música</title>
+</head>
+<body>
+<header class="topbar">
+  <h1 id="title">Corre</h1>
+</header>
+
+<main>
+  <!-- PLANES -->
+  <section id="view-plans" class="view">
+    <div id="plan-list"></div>
+    <button class="btn primary block" id="btn-new-plan">+ Nuevo plan</button>
+  </section>
+
+  <!-- EDITOR DE PLAN -->
+  <section id="view-plan-edit" class="view" hidden>
+    <label>Nombre<input id="pe-name" placeholder="Rodaje 10 km"></label>
+    <div class="row">
+      <label>Distancia (km)<input id="pe-dist" type="number" step="0.1" min="0" inputmode="decimal"></label>
+      <label>Ritmo objetivo (min/km)<input id="pe-pace" placeholder="6:30" inputmode="numeric"></label>
+    </div>
+    <p class="hint" id="pe-estimate"></p>
+    <label class="check"><input type="checkbox" id="pe-km"> Avisar por voz en cada km (distancia y ritmo)</label>
+
+    <h3>Música de Spotify</h3>
+    <div id="pe-spotify"></div>
+
+    <h3>Audios del plan</h3>
+    <p class="hint">Cada audio salta al llegar a una distancia o a un tiempo.</p>
+    <div id="pe-triggers"></div>
+    <button class="btn block" id="btn-add-trigger">+ Añadir audio al plan</button>
+
+    <div class="actions">
+      <button class="btn danger" id="btn-del-plan">Borrar</button>
+      <button class="btn" id="btn-cancel-plan">Cancelar</button>
+      <button class="btn primary" id="btn-save-plan">Guardar</button>
+    </div>
+  </section>
+
+  <!-- AUDIOS -->
+  <section id="view-audios" class="view" hidden>
+    <p class="hint">Sube notas de voz (por ejemplo, de WhatsApp) o grábalas aquí mismo.</p>
+    <div class="row">
+      <label class="btn primary file">Subir audio<input type="file" id="audio-file" accept="audio/*" multiple hidden></label>
+      <button class="btn" id="btn-record">● Grabar</button>
+    </div>
+    <div id="audio-list"></div>
+  </section>
+
+  <!-- CORRER -->
+  <section id="view-run" class="view" hidden>
+    <label>Plan<select id="run-plan"></select></label>
+    <label class="check"><input type="checkbox" id="run-sim"> Modo simulación (sin GPS, para probar en casa)</label>
+    <div class="dash">
+      <div class="big"><span id="r-dist">0.00</span><small>km</small></div>
+      <div class="grid3">
+        <div><span id="r-time">0:00</span><small>tiempo</small></div>
+        <div><span id="r-pace">--:--</span><small>ritmo actual</small></div>
+        <div><span id="r-avg">--:--</span><small>ritmo medio</small></div>
+      </div>
+      <div class="delta" id="r-delta"></div>
+      <div class="next" id="r-next"></div>
+      <div class="gps" id="r-gps">GPS: apagado</div>
+    </div>
+    <div class="actions run-actions">
+      <button class="btn primary big-btn" id="btn-start">Empezar</button>
+      <button class="btn big-btn" id="btn-pause" hidden>Pausa</button>
+      <button class="btn danger big-btn" id="btn-stop" hidden>Terminar</button>
+    </div>
+    <p class="hint">Mantén la pantalla encendida durante la carrera: en iPhone, una web no puede seguir el GPS con la pantalla bloqueada.</p>
+    <h3>Historial</h3>
+    <div id="history"></div>
+  </section>
+
+  <!-- AJUSTES -->
+  <section id="view-settings" class="view" hidden>
+    <h3>Spotify</h3>
+    <p class="hint">Necesitas un "Client ID" de una app de desarrollador de Spotify. Redirect URI que debes registrar:</p>
+    <code id="redirect-uri"></code>
+    <label>Client ID<input id="sp-client" autocomplete="off"></label>
+    <div class="row">
+      <button class="btn primary" id="btn-sp-connect">Conectar Spotify</button>
+      <button class="btn" id="btn-sp-disconnect">Desconectar</button>
+    </div>
+    <p id="sp-status" class="hint"></p>
+    <label>Cuando suena un audio, la música…
+      <select id="duck-mode">
+        <option value="volume">baja el volumen (si el dispositivo lo permite, si no se pausa)</option>
+        <option value="pause">se pausa y luego sigue</option>
+      </select>
+    </label>
+    <h3>Voz</h3>
+    <label class="check"><input type="checkbox" id="voice-on" checked> Usar voz para avisos de km</label>
+    <button class="btn" id="btn-test-voice">Probar voz</button>
+    <h3>Datos</h3>
+    <button class="btn" id="btn-export">Exportar planes (copia de seguridad)</button>
+  </section>
+</main>
+
+<nav class="tabs">
+  <button data-view="run" class="active">🏃<span>Correr</span></button>
+  <button data-view="plans">📋<span>Planes</span></button>
+  <button data-view="audios">🎙️<span>Audios</span></button>
+  <button data-view="settings">⚙️<span>Ajustes</span></button>
+</nav>
+
+<div id="toast" hidden></div>
+<script src="spotify.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
