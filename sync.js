@@ -6,7 +6,9 @@ const Sync = (() => {
   const DEFAULT_REPO = 'pericardio/corre-datos';
   const API = 'https://api.github.com';
   const shas = {}; // ruta -> sha conocido, para actualizar ficheros
-  let pulling = null, plansTimer = null;
+  let pulling = null, plansTimer = null, queue = Promise.resolve();
+  const serial = fn => { const p = queue.then(fn, fn); queue = p.catch(() => {}); return p; };
+  const wait = ms => new Promise(r => setTimeout(r, ms));
   const listeners = [];
 
   const token = () => localStorage.getItem(LS.token) || '';
@@ -30,9 +32,10 @@ const Sync = (() => {
       },
     });
     if (r.status === 404) return null;
+    if (r.status === 409 && (opts.method || 'GET') === 'GET') return null; // repositorio vacío (sin commits)
     if (r.status === 401) throw new Error('La clave de GitHub no es válida o ha caducado');
     if (r.status === 403) throw new Error('La clave de GitHub no tiene permiso "Contents: Read and write" sobre ' + repo());
-    if (!r.ok) { const e = new Error('GitHub ' + r.status); e.status = r.status; throw e; }
+    if (!r.ok) { let msg = ''; try { msg = (await r.json()).message || ''; } catch {} const e = new Error('GitHub ' + r.status + (msg ? ': ' + msg : '')); e.status = r.status; throw e; }
     return raw ? r : r.json();
   }
 
@@ -59,14 +62,22 @@ const Sync = (() => {
       const res = await req(path, { method: 'PUT', body: JSON.stringify(body) });
       shas[path] = res.content.sha;
     };
-    try { await attempt(); }
-    catch (e) { if (e.status === 409 || e.status === 422) { delete shas[path]; await attempt(); } else throw e; }
+    return serial(async () => {
+      for (let i = 0; ; i++) {
+        try { return await attempt(); }
+        catch (e) { if ((e.status === 409 || e.status === 422) && i < 3) { delete shas[path]; await wait(1000 * (i + 1)); } else throw e; }
+      }
+    });
   }
   async function deleteFile(path, message) {
-    const sha = await getSha(path);
-    if (!sha) return;
-    await req(path, { method: 'DELETE', body: JSON.stringify({ message, sha }) });
-    delete shas[path];
+    return serial(async () => {
+      for (let i = 0; ; i++) {
+        const sha = await getSha(path);
+        if (!sha) return;
+        try { await req(path, { method: 'DELETE', body: JSON.stringify({ message, sha }) }); delete shas[path]; return; }
+        catch (e) { if (e.status === 409 && i < 3) await wait(1000 * (i + 1)); else throw e; }
+      }
+    });
   }
 
   const extOf = a => a.ext || ({ 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/aac': 'aac', 'audio/ogg': 'ogg', 'audio/opus': 'opus', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/webm': 'webm' }[(a.type || '').split(';')[0]] || 'bin');
