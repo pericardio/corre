@@ -63,7 +63,8 @@ const Spotify = (() => {
       body: new URLSearchParams({ client_id: clientId(), grant_type: 'refresh_token', refresh_token: t.refresh_token }),
     });
     if (!r.ok) { disconnect(); throw new Error('Sesión de Spotify caducada: vuelve a conectar'); }
-    saveToken(await r.json());
+    let nt; try { nt = await r.json(); } catch { throw new Error('Spotify no devolvió un token válido; vuelve a conectar'); }
+    saveToken(nt);
     return token().access_token;
   }
 
@@ -71,11 +72,12 @@ const Spotify = (() => {
     const r = await fetch('https://api.spotify.com/v1' + path, {
       ...opts, headers: { Authorization: 'Bearer ' + await accessToken(), 'Content-Type': 'application/json', ...(opts.headers || {}) },
     });
-    if (r.status === 204) return null;
+    if (r.status === 204 || r.status === 202) return null;
     const body = await r.text();
-    const data = body ? JSON.parse(body) : null;
+    let data = null;
+    try { data = body ? JSON.parse(body) : null; } catch { if (r.ok) return null; }
     if (!r.ok) {
-      const err = new Error((data && data.error && data.error.message) || ('Error ' + r.status));
+      const err = new Error('Spotify: ' + ((data && data.error && data.error.message) || ('error ' + r.status + ' ' + body.slice(0, 60))));
       err.status = r.status; err.reason = data && data.error && data.error.reason;
       throw err;
     }
