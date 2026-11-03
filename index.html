@@ -105,6 +105,11 @@
     <h3>Voz</h3>
     <label class="check"><input type="checkbox" id="voice-on" checked> Usar voz para avisos de km</label>
     <button class="btn" id="btn-test-voice">Probar voz</button>
+    <h3>Sincronizar entre dispositivos</h3>
+    <p class="hint">Los planes y audios se guardan en tu repositorio privado de GitHub <code style="display:inline;padding:2px 4px">pericardio/corre-datos</code>. Pega aquí tu clave de acceso (empieza por github_pat_) en cada dispositivo.</p>
+    <label>Clave de acceso de GitHub<input id="gh-token" type="password" autocomplete="off" placeholder="github_pat_…"></label>
+    <p id="gh-status" class="hint"></p>
+    <button class="btn" id="btn-sync">Sincronizar ahora</button>
     <h3>Datos</h3>
     <button class="btn" id="btn-export">Exportar planes (copia de seguridad)</button>
   </section>
@@ -119,6 +124,7 @@
 
 <div id="toast" hidden></div>
 <script src="spotify.js"></script>
+<script src="sync.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

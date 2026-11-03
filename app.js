@@ -26,8 +26,9 @@ const DB = (() => {
 })();
 const Plans = {
   all: () => { try { return JSON.parse(localStorage.getItem('plans')) || []; } catch { return []; } },
-  save(p) { const all = Plans.all(); const i = all.findIndex(x => x.id === p.id); i >= 0 ? all[i] = p : all.push(p); localStorage.setItem('plans', JSON.stringify(all)); },
-  del(id) { localStorage.setItem('plans', JSON.stringify(Plans.all().filter(p => p.id !== id))); },
+  save(p) { const all = Plans.all(); const i = all.findIndex(x => x.id === p.id); i >= 0 ? all[i] = p : all.push(p); localStorage.setItem('plans', JSON.stringify(all)); Sync.schedulePlans(Plans.all); },
+  del(id) { localStorage.setItem('plans', JSON.stringify(Plans.all().filter(p => p.id !== id))); Sync.schedulePlans(Plans.all); },
+  replace(list) { localStorage.setItem('plans', JSON.stringify(list)); },
 };
 const Settings = {
   get: (k, d) => localStorage.getItem('set_' + k) ?? d,
@@ -51,7 +52,9 @@ document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => { if (R
 // ===== Audios =====
 async function addAudio(blob, name) {
   const a = { id: uid(), name: name || 'Audio', blob, type: blob.type, createdAt: Date.now() };
-  await DB.put('audios', a); return a;
+  await DB.put('audios', a);
+  if (Sync.enabled()) { try { await Sync.pushAudio(a); a.synced = true; await DB.put('audios', a); } catch (e) { toast('Guardado en este dispositivo, pero no se pudo subir: ' + e.message, 6000); } }
+  return a;
 }
 const urlCache = new Map();
 const audioURL = a => { if (!urlCache.has(a.id)) urlCache.set(a.id, URL.createObjectURL(a.blob)); return urlCache.get(a.id); };
@@ -68,9 +71,9 @@ async function renderAudios() {
     </div>`).join('') : '<p class="hint">Aún no hay audios.</p>';
   $('#audio-list').querySelectorAll('.card').forEach(card => {
     const a = list.find(x => x.id === card.dataset.id);
-    card.querySelector('.aname').onchange = e => { a.name = e.target.value; DB.put('audios', a); };
+    card.querySelector('.aname').onchange = e => { a.name = e.target.value; DB.put('audios', a); Sync.renameAudio(a).catch(e => toast(e.message)); };
     card.querySelector('[data-act=play]').onclick = () => Player.preview(a);
-    card.querySelector('[data-act=del]').onclick = async () => { if (confirm('¿Borrar "' + a.name + '"?')) { await DB.del('audios', a.id); renderAudios(); } };
+    card.querySelector('[data-act=del]').onclick = async () => { if (confirm('¿Borrar "' + a.name + '"?')) { await DB.del('audios', a.id); renderAudios(); Sync.deleteAudio(a).catch(e => toast(e.message)); } };
   });
 }
 $('#audio-file').onchange = async e => {
@@ -353,6 +356,7 @@ function downloadGPX(r) {
 
 // ===== Ajustes =====
 function renderSettings() {
+  $('#gh-token').value = Sync.token(); renderSyncStatus();
   $('#redirect-uri').textContent = Spotify.redirectUri();
   $('#sp-client').value = Spotify.clientId();
   $('#duck-mode').value = Settings.get('duck', 'volume');
@@ -367,9 +371,38 @@ $('#btn-sp-disconnect').onclick = () => { Spotify.disconnect(); renderSettings()
 $('#duck-mode').onchange = e => Settings.set('duck', e.target.value);
 $('#voice-on').onchange = e => Settings.set('voice', e.target.checked ? '1' : '0');
 $('#btn-test-voice').onclick = () => { Player.unlock(); Player.speak('Kilómetro 3. Vas fenomenal. ¡Aprieta!'); };
+function renderSyncStatus() {
+  const s = $('#gh-status');
+  if (!Sync.enabled()) { s.textContent = 'Sin sincronizar: los planes y audios se quedan solo en este dispositivo.'; return; }
+  s.textContent = 'Comprobando…';
+  Sync.check().then(n => s.textContent = '✅ Sincronizando con ' + n + (Sync.lastSync() ? ' · última vez ' + new Date(Sync.lastSync()).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '')).catch(e => s.textContent = '⚠️ ' + e.message);
+}
+$('#gh-token').onchange = e => { Sync.setToken(e.target.value); renderSyncStatus(); if (Sync.enabled()) syncNow(); };
+$('#btn-sync').onclick = () => syncNow();
+async function syncNow(silent) {
+  if (!Sync.enabled()) return;
+  try {
+    const local = await DB.all('audios');
+    const r = await Sync.pull(local);
+    if (!r) return;
+    const localPlans = Plans.all();
+    if (r.plans) Plans.replace(r.plans);
+    else if (localPlans.length) await Sync.pushPlans(localPlans); // primer dispositivo: sube lo que tenga
+    for (const a of r.audios) { if (a.blob) await DB.put('audios', { id: a.id, name: a.name, type: a.type, ext: a.ext, createdAt: a.createdAt, blob: a.blob, synced: true }); }
+    for (const id of r.removedAudioIds) await DB.del('audios', id);
+    // Audios locales que nunca se subieron (por ejemplo, creados antes de poner la clave)
+    const remoteIds = new Set(r.audios.map(a => a.id));
+    for (const a of local) if (!remoteIds.has(a.id) && !a.synced) { await Sync.pushAudio(a); a.synced = true; await DB.put('audios', a); }
+    const v = document.querySelector('.view:not([hidden])'); const id = v && v.id.replace('view-', '');
+    if (id === 'plans') renderPlans(); if (id === 'audios') renderAudios(); if (id === 'run') renderRunView(); if (id === 'settings') renderSyncStatus();
+    if (!silent) toast('Sincronizado');
+  } catch (e) { toast('Sincronización: ' + e.message, 6000); }
+}
+Sync.onChange(w => { if (w.startsWith('error:')) toast('No se pudo subir a GitHub: ' + w.slice(6), 6000); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && !Run.active) syncNow(true); });
 $('#btn-export').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(Plans.all(), null, 2)], { type: 'application/json' })); a.download = 'planes.json'; a.click(); };
 
 // ===== Arranque =====
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 if (navigator.storage?.persist) navigator.storage.persist();
-Spotify.handleRedirect().then(ok => { if (ok) { toast('Spotify conectado'); show('settings'); } else show('run'); }).catch(e => { toast(e.message); show('settings'); });
+Spotify.handleRedirect().then(ok => { if (ok) { toast('Spotify conectado'); show('settings'); } else show('run'); syncNow(true); }).catch(e => { toast(e.message); show('settings'); });
