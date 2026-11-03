@@ -2,7 +2,7 @@
 // En iPhone el SDK de reproducción web no funciona, así que controlamos la app
 // oficial de Spotify (Spotify Connect): play, pausa, volumen.
 const Spotify = (() => {
-  const SCOPES = 'user-read-playback-state user-modify-playback-state playlist-read-private playlist-read-collaborative';
+  const SCOPES = 'user-read-private user-read-playback-state user-modify-playback-state playlist-read-private playlist-read-collaborative';
   const LS = { client: 'sp_client_id', tok: 'sp_token', ver: 'sp_verifier' };
   const redirectUri = () => location.origin + location.pathname;
 
