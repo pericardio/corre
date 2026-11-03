@@ -4,7 +4,8 @@
 const Spotify = (() => {
   const SCOPES = 'user-read-private user-read-playback-state user-modify-playback-state playlist-read-private playlist-read-collaborative';
   const LS = { client: 'sp_client_id', tok: 'sp_token', ver: 'sp_verifier' };
-  const redirectUri = () => location.origin + location.pathname;
+  const native = () => window.Native && Native.isNative;
+  const redirectUri = () => native() ? Native.SPOTIFY_REDIRECT : location.origin + location.pathname;
 
   const DEFAULT_CLIENT_ID = '0b4e26b7d13148e7bc9b595558dbab37'; // app "Corre" de David (el Client ID no es secreto)
   const clientId = () => localStorage.getItem(LS.client) || DEFAULT_CLIENT_ID;
@@ -33,14 +34,15 @@ const Spotify = (() => {
       client_id: clientId(), response_type: 'code', redirect_uri: redirectUri(),
       code_challenge_method: 'S256', code_challenge: challenge, scope: SCOPES,
     });
-    location.href = 'https://accounts.spotify.com/authorize?' + p;
+    const url = 'https://accounts.spotify.com/authorize?' + p;
+    if (native()) await Native.openExternal(url); else location.href = url;
   }
 
   // Llamar al cargar la página: si venimos de Spotify con ?code=, canjearlo.
-  async function handleRedirect() {
-    const q = new URLSearchParams(location.search);
+  async function handleRedirect(url) {
+    const q = new URLSearchParams(url ? url.slice(url.indexOf('?')) : location.search);
     if (!q.get('code') && !q.get('error')) return false;
-    history.replaceState(null, '', redirectUri());
+    if (native()) Native.closeBrowser(); else history.replaceState(null, '', redirectUri());
     if (q.get('error')) throw new Error('Spotify: ' + q.get('error'));
     const r = await fetch('https://accounts.spotify.com/api/token', {
       method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -99,7 +101,7 @@ const Spotify = (() => {
 
   const NO_DEVICE = 'Spotify no ve este móvil todavía.';
   // Abre la app de Spotify en el móvil (con la lista si la hay). iOS no deja arrancarla de otra forma.
-  const openApp = contextUri => { try { location.assign(contextUri || 'spotify:'); } catch {} };
+  const openApp = contextUri => { const u = contextUri || 'spotify:'; try { native() ? Native.openUrl(u) : location.assign(u); } catch {} };
   // Elige dónde sonar: el móvil (Smartphone) antes que altavoces o el ordenador.
   async function pickDevice() {
     const ds = await devices();

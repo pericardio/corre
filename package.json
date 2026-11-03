@@ -1,0 +1,18 @@
+{
+  "name": "corre",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Corre con música: app de running con Spotify y audios por km",
+  "scripts": {
+    "build": "node scripts/build-www.js",
+    "ios": "npm run build && npx cap sync ios && npx cap open ios"
+  },
+  "dependencies": {
+    "@capacitor-community/background-geolocation": "^1.3.1",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/browser": "^8.0.5",
+    "@capacitor/cli": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/ios": "^8.6.0"
+  }
+}

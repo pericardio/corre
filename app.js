@@ -267,7 +267,7 @@ async function refreshSpotifyStatus() {
   catch (e) { el.textContent = 'Spotify: ' + e.message; el.style.color = 'var(--bad)'; }
 }
 async function acquireWakeLock() { try { Run.wakeLock = await navigator.wakeLock?.request('screen'); } catch {} }
-document.addEventListener('visibilitychange', () => { if (!Run.active) return; if (document.visibilityState === 'visible') { logEvent('👀 Corre vuelve a pantalla'); acquireWakeLock(); startSpotify(); } else logEvent('💤 Corre en segundo plano o pantalla apagada: GPS y audios parados'); });
+document.addEventListener('visibilitychange', () => { if (!Run.active) return; if (document.visibilityState === 'visible') { logEvent('👀 Corre vuelve a pantalla'); acquireWakeLock(); startSpotify(); } else logEvent(Native.isNative ? '💤 Corre en segundo plano (sigue midiendo)' : '💤 Corre en segundo plano o pantalla apagada: GPS y audios parados'); });
 
 $('#btn-start').onclick = async () => {
   Player.unlock();
@@ -278,8 +278,10 @@ $('#btn-start').onclick = async () => {
   $('#btn-start').hidden = true; $('#btn-pause').hidden = false; $('#btn-stop').hidden = false; $('#btn-pause').textContent = 'Pausa';
   renderRunView(); acquireWakeLock();
   if (!Run.sim) {
-    if (!navigator.geolocation) { toast('Este navegador no tiene GPS'); }
-    else Run.watchId = navigator.geolocation.watchPosition(onPos, err => { $('#r-gps').textContent = 'GPS: ' + err.message; logEvent('📍 Error GPS: ' + err.message); }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+    const onGpsErr = err => { $('#r-gps').textContent = 'GPS: ' + err.message; logEvent('📍 Error GPS: ' + err.message); };
+    if (Native.isNative) Native.watchPosition(onPos, onGpsErr).then(id => { Run.watchId = id; });
+    else if (!navigator.geolocation) { toast('Este navegador no tiene GPS'); }
+    else Run.watchId = navigator.geolocation.watchPosition(onPos, onGpsErr, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
   } else $('#r-gps').textContent = 'Simulación: 10x más rápido, al ritmo del plan';
   Run.timer = setInterval(tick, 1000);
   if (Spotify.connected()) { Run.spotifyPending = true; Run.spotifyOpened = false; Run.spotifyTries = 0; Run.spotifyTick = 0; startSpotify(); }
@@ -292,7 +294,7 @@ $('#btn-pause').onclick = () => {
 };
 $('#btn-stop').onclick = async () => {
   if (!confirm('¿Terminar la carrera?')) return;
-  if (Run.watchId != null) navigator.geolocation.clearWatch(Run.watchId);
+  if (Run.watchId != null) (Native.isNative ? Native.clearWatch(Run.watchId) : navigator.geolocation.clearWatch(Run.watchId));
   clearInterval(Run.timer); Run.active = false; try { Run.wakeLock?.release(); } catch {}
   $('#btn-start').hidden = false; $('#btn-pause').hidden = true; $('#btn-stop').hidden = true;
   logEvent('⏹️ Terminada'); const run = { id: uid(), date: Run.startedAt, planName: Run.plan ? Run.plan.name : 'Carrera libre', distance: Run.distance, elapsed: Run.elapsed, points: Run.points, sim: Run.sim, log: Run.log };
@@ -436,6 +438,10 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 $('#btn-export').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(Plans.all(), null, 2)], { type: 'application/json' })); a.download = 'planes.json'; a.click(); };
 
 // ===== Arranque =====
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+if (!Native.isNative && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+if (Native.isNative) {
+  Native.onUrl(url => { if (url.startsWith(Native.SPOTIFY_REDIRECT)) Spotify.handleRedirect(url).then(ok => { if (ok) { toast('Spotify conectado'); show('settings'); } }).catch(e => toast(e.message)); });
+  document.querySelector('#view-run .hint').textContent = 'Puedes bloquear el móvil: la app sigue midiendo y lanzando los audios en segundo plano.';
+}
 if (navigator.storage?.persist) navigator.storage.persist();
 Spotify.handleRedirect().then(ok => { if (ok) { toast('Spotify conectado'); show('settings'); } else show('run'); syncNow(true); }).catch(e => { toast(e.message); show('settings'); });

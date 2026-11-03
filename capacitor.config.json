@@ -1,0 +1,12 @@
+{
+  "appId": "es.davidregueiro.corre",
+  "appName": "Corre",
+  "webDir": "www",
+  "ios": {
+    "contentInset": "always",
+    "backgroundColor": "#111111"
+  },
+  "plugins": {
+    "CapacitorHttp": { "enabled": false }
+  }
+}
