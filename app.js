@@ -358,7 +358,7 @@ function renderSettings() {
   $('#duck-mode').value = Settings.get('duck', 'volume');
   $('#voice-on').checked = Settings.get('voice', '1') === '1';
   const s = $('#sp-status');
-  if (Spotify.connected()) { s.textContent = 'Conectado. Comprobando…'; Spotify.me().then(m => s.textContent = '✅ Conectado como ' + m.display_name + (m.product !== 'premium' ? ' (ojo: hace falta Premium)' : '')).catch(e => s.textContent = '⚠️ ' + e.message); }
+  if (Spotify.connected()) { s.textContent = 'Conectado. Comprobando…'; Spotify.me().then(m => s.textContent = '✅ Conectado como ' + m.display_name + (m.product !== 'premium' ? ' (ojo: Spotify dice que el plan es "' + m.product + '" y para controlar la música hace falta Premium)' : ' (Premium)')).catch(e => s.textContent = '⚠️ ' + e.message); }
   else s.textContent = 'No conectado.';
 }
 $('#sp-client').onchange = e => Spotify.setClientId(e.target.value);
