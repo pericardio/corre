@@ -232,7 +232,14 @@ function renderRunView() {
   sel.innerHTML = '<option value="">Carrera libre (sin plan)</option>' + plans.map(p => `<option value="${p.id}">${esc(p.name)} · ${p.distanceKm} km a ${fmtPace(p.paceSec)}</option>`).join('');
   sel.value = cur || Settings.get('lastPlan', '');
   sel.disabled = Run.active; $('#run-sim').disabled = Run.active;
-  renderHistory();
+  renderHistory(); if (!Run.active) refreshSpotifyStatus();
+}
+async function refreshSpotifyStatus() {
+  const el = $('#r-spotify');
+  if (!Spotify.connected()) { el.textContent = 'Spotify: sin conectar (pon tú la música antes de salir)'; return; }
+  el.textContent = 'Spotify: comprobando…';
+  try { const d = await Spotify.describe(); el.textContent = d.text; el.style.color = d.ok ? '' : 'var(--bad)'; }
+  catch (e) { el.textContent = 'Spotify: ' + e.message; el.style.color = 'var(--bad)'; }
 }
 async function acquireWakeLock() { try { Run.wakeLock = await navigator.wakeLock?.request('screen'); } catch {} }
 document.addEventListener('visibilitychange', () => { if (Run.active && document.visibilityState === 'visible') acquireWakeLock(); });
@@ -250,8 +257,8 @@ $('#btn-start').onclick = async () => {
   } else $('#r-gps').textContent = 'Simulación: 10x más rápido, al ritmo del plan';
   Run.timer = setInterval(tick, 1000);
   if (Spotify.connected()) {
-    try { await Spotify.play(Run.plan && Run.plan.playlist ? Run.plan.playlist.uri : undefined); }
-    catch (e) { toast(e.message, 6000); }
+    try { const d = await Spotify.play(Run.plan && Run.plan.playlist ? Run.plan.playlist.uri : undefined); $('#r-spotify').textContent = 'Spotify: sonando en ' + d.name; $('#r-spotify').style.color = ''; }
+    catch (e) { toast(e.message, 8000); $('#r-spotify').textContent = e.message; $('#r-spotify').style.color = 'var(--bad)'; }
   }
   Player.speak(Run.plan ? `Empezamos ${Run.plan.name}. Objetivo, ${paceWords(Run.plan.paceSec)} el kilómetro.` : 'Empezamos.');
 };
