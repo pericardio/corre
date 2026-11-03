@@ -97,7 +97,9 @@ const Spotify = (() => {
   const state = () => api('/me/player');
   const devices = async () => (await api('/me/player/devices')).devices;
 
-  const NO_DEVICE = 'Spotify no ve este móvil. Abre la app de Spotify, dale al play a cualquier canción, vuelve aquí y pulsa Empezar.';
+  const NO_DEVICE = 'Spotify no ve este móvil todavía.';
+  // Abre la app de Spotify en el móvil (con la lista si la hay). iOS no deja arrancarla de otra forma.
+  const openApp = contextUri => { try { location.assign(contextUri || 'spotify:'); } catch {} };
   // Elige dónde sonar: el móvil (Smartphone) antes que altavoces o el ordenador.
   async function pickDevice() {
     const ds = await devices();
@@ -109,10 +111,10 @@ const Spotify = (() => {
   async function play(contextUri) {
     const body = contextUri ? JSON.stringify({ context_uri: contextUri }) : undefined;
     const d = await pickDevice();
-    if (!d) throw new Error(NO_DEVICE);
+    if (!d || d.type !== 'Smartphone') { const e = new Error(NO_DEVICE); e.noDevice = true; throw e; }
     try { await api('/me/player/play?device_id=' + d.id, { method: 'PUT', body }); }
     catch (e) {
-      if (e.status === 404) throw new Error(NO_DEVICE);
+      if (e.status === 404) { const e2 = new Error(NO_DEVICE); e2.noDevice = true; throw e2; }
       throw e;
     }
     return d;
@@ -120,13 +122,13 @@ const Spotify = (() => {
   // Texto de estado para la pantalla de carrera.
   async function describe() {
     const ds = await devices();
-    if (!ds.length) return { ok: false, text: 'Spotify: no veo ningún dispositivo. Abre Spotify en el móvil y dale al play.' };
+    if (!ds.length) return { ok: false, text: 'Spotify: el iPhone no está despierto en Spotify. Al pulsar Empezar se abrirá Spotify; dale al play y vuelve.' };
     const active = ds.find(d => d.is_active);
     const phone = ds.find(d => d.type === 'Smartphone');
     let st = null; try { st = await state(); } catch {}
     if (active && active.type === 'Smartphone') return { ok: true, text: 'Spotify: ' + (st && st.is_playing ? 'sonando' : 'listo') + ' en ' + active.name };
     if (phone) return { ok: true, text: 'Spotify: activo en "' + (active ? active.name : '?') + '"; al empezar pasará a ' + phone.name };
-    return { ok: false, text: 'Spotify: solo veo "' + ds.map(d => d.name).join('", "') + '". Abre Spotify en el móvil y dale al play.' };
+    return { ok: false, text: 'Spotify: el iPhone no está despierto en Spotify. Al pulsar Empezar se abrirá Spotify; dale al play y vuelve.' };
   }
   const pause = () => api('/me/player/pause', { method: 'PUT' });
   const resume = () => api('/me/player/play', { method: 'PUT' });
@@ -150,5 +152,5 @@ const Spotify = (() => {
     return async () => { try { await resume(); } catch {} };
   }
 
-  return { redirectUri, clientId, setClientId, connected, disconnect, login, handleRedirect, me, playlists, play, pause, resume, duck, describe };
+  return { redirectUri, clientId, setClientId, connected, disconnect, login, handleRedirect, me, playlists, play, pause, resume, duck, describe, openApp };
 })();

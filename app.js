@@ -234,6 +234,23 @@ function renderRunView() {
   sel.disabled = Run.active; $('#run-sim').disabled = Run.active;
   renderHistory(); if (!Run.active) refreshSpotifyStatus();
 }
+// Arranca la música en el iPhone. Si Spotify no está "despierto" en el móvil, abre la app
+// de Spotify y lo reintenta cuando el usuario vuelva (iOS no permite otra cosa).
+async function startSpotify() {
+  if (!Run.active || !Run.spotifyPending || Run.spotifyBusy) return;
+  Run.spotifyBusy = true; const el = $('#r-spotify');
+  try {
+    const d = await Spotify.play(Run.plan && Run.plan.playlist ? Run.plan.playlist.uri : undefined);
+    Run.spotifyPending = false; el.textContent = 'Spotify: sonando en ' + d.name; el.style.color = '';
+  } catch (e) {
+    if (e.noDevice) {
+      Run.spotifyTries++;
+      el.textContent = 'Spotify: abriendo Spotify en el móvil… dale al play si no suena y vuelve aquí.'; el.style.color = 'var(--bad)';
+      if (!Run.spotifyOpened) { Run.spotifyOpened = true; setTimeout(() => Spotify.openApp(Run.plan && Run.plan.playlist ? Run.plan.playlist.uri : null), 300); }
+      if (Run.spotifyTries > 40) { Run.spotifyPending = false; el.textContent = 'Spotify: no he podido arrancarlo. Pon tú la música en Spotify.'; }
+    } else { Run.spotifyPending = false; toast(e.message, 8000); el.textContent = e.message; el.style.color = 'var(--bad)'; }
+  } finally { Run.spotifyBusy = false; }
+}
 async function refreshSpotifyStatus() {
   const el = $('#r-spotify');
   if (!Spotify.connected()) { el.textContent = 'Spotify: sin conectar (pon tú la música antes de salir)'; return; }
@@ -242,7 +259,7 @@ async function refreshSpotifyStatus() {
   catch (e) { el.textContent = 'Spotify: ' + e.message; el.style.color = 'var(--bad)'; }
 }
 async function acquireWakeLock() { try { Run.wakeLock = await navigator.wakeLock?.request('screen'); } catch {} }
-document.addEventListener('visibilitychange', () => { if (Run.active && document.visibilityState === 'visible') acquireWakeLock(); });
+document.addEventListener('visibilitychange', () => { if (Run.active && document.visibilityState === 'visible') { acquireWakeLock(); startSpotify(); } });
 
 $('#btn-start').onclick = async () => {
   Player.unlock();
@@ -256,10 +273,7 @@ $('#btn-start').onclick = async () => {
     else Run.watchId = navigator.geolocation.watchPosition(onPos, err => { $('#r-gps').textContent = 'GPS: ' + err.message; }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
   } else $('#r-gps').textContent = 'Simulación: 10x más rápido, al ritmo del plan';
   Run.timer = setInterval(tick, 1000);
-  if (Spotify.connected()) {
-    try { const d = await Spotify.play(Run.plan && Run.plan.playlist ? Run.plan.playlist.uri : undefined); $('#r-spotify').textContent = 'Spotify: sonando en ' + d.name; $('#r-spotify').style.color = ''; }
-    catch (e) { toast(e.message, 8000); $('#r-spotify').textContent = e.message; $('#r-spotify').style.color = 'var(--bad)'; }
-  }
+  if (Spotify.connected()) { Run.spotifyPending = true; Run.spotifyOpened = false; Run.spotifyTries = 0; Run.spotifyTick = 0; startSpotify(); }
   Player.speak(Run.plan ? `Empezamos ${Run.plan.name}. Objetivo, ${paceWords(Run.plan.paceSec)} el kilómetro.` : 'Empezamos.');
 };
 $('#btn-pause').onclick = () => {
@@ -296,6 +310,7 @@ function tick() {
   const now = Date.now(); const dt = (now - Run.lastTick) / 1000; Run.lastTick = now;
   if (Run.paused) return;
   Run.elapsed += dt;
+  if (Run.spotifyPending && (++Run.spotifyTick % 4) === 0) startSpotify();
   if (Run.sim) { const pace = (Run.plan && Run.plan.paceSec) || 360; const d = 10 * dt * 1000 / pace; Run.distance += d; Run.recent.push({ d, dt }); Run.elapsed += dt * 9; }
   // Ritmo actual: últimos ~30 s
   let sd = 0, st = 0; for (let i = Run.recent.length - 1; i >= 0 && st < (Run.sim ? 3 : 30); i--) { sd += Run.recent[i].d; st += Run.recent[i].dt; }
