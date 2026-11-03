@@ -135,11 +135,15 @@ const Spotify = (() => {
   const setVolume = v => api('/me/player/volume?volume_percent=' + Math.round(v), { method: 'PUT' });
 
   // Baja o pausa la música mientras suena un audio. Devuelve una función para restaurar.
-  async function duck(mode) {
+  // `force`: la música la arrancamos nosotros, así que al terminar siempre se reanuda
+  // (iOS puede haberla pausado al sonar nuestro audio sin que la API lo refleje).
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  async function duck(mode, force) {
     if (!connected()) return async () => {};
-    let st;
-    try { st = await state(); } catch { return async () => {}; }
-    if (!st || !st.is_playing) return async () => {};
+    let st = null;
+    try { st = await state(); } catch {}
+    const resumeLater = async () => { await wait(800); try { await resume(); } catch {} };
+    if (!st || !st.is_playing) return force ? resumeLater : async () => {};
     const vol = st.device && st.device.volume_percent;
     const canVol = st.device && st.device.supports_volume !== false && vol != null;
     if (mode === 'volume' && canVol) {
@@ -148,8 +152,8 @@ const Spotify = (() => {
         return async () => { try { await setVolume(vol); } catch {} };
       } catch { /* el dispositivo no deja cambiar el volumen: pausamos */ }
     }
-    try { await pause(); } catch { return async () => {}; }
-    return async () => { try { await resume(); } catch {} };
+    try { await pause(); } catch { return force ? resumeLater : async () => {}; }
+    return resumeLater;
   }
 
   return { redirectUri, clientId, setClientId, connected, disconnect, login, handleRedirect, me, playlists, play, pause, resume, duck, describe, openApp };

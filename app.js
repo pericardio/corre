@@ -109,7 +109,8 @@ const Player = (() => {
   const queue = []; let busy = false;
   // iOS: el audio solo puede sonar si se "desbloquea" con un toque del usuario.
   function unlock() {
-    try { if (navigator.audioSession) navigator.audioSession.type = 'transient'; } catch {}
+    // Que iOS pause la música de otras apps mientras suena lo nuestro y la reanude al acabar.
+    try { if (navigator.audioSession) navigator.audioSession.type = 'transient-solo'; } catch {}
     el.src = SILENCE; el.play().catch(() => {});
     if ('speechSynthesis' in window) { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); }
   }
@@ -125,10 +126,11 @@ const Player = (() => {
     if (busy) return; busy = true;
     while (queue.length) {
       const item = queue.shift();
-      const restore = await Spotify.duck(Settings.get('duck', 'volume'));
-      if (item.audio) await playEl(audioURL(item.audio));
-      if (item.text) await speakNow(item.text);
+      const restore = await Spotify.duck(Settings.get('duck', 'volume'), Run.active && Run.spotifyStarted);
+      if (item.audio) { logEvent('🔊 Audio: ' + item.audio.name); await playEl(audioURL(item.audio)); }
+      if (item.text) { logEvent('🗣️ ' + item.text.slice(0, 50)); await speakNow(item.text); }
       await restore();
+      if (Run.active && Run.spotifyStarted) logEvent('🎵 Música reanudada');
     }
     busy = false;
   }
@@ -221,11 +223,17 @@ $('#btn-save-plan').onclick = () => {
 $('#btn-cancel-plan').onclick = () => show('plans');
 $('#btn-del-plan').onclick = () => { if (confirm('¿Borrar este plan?')) { Plans.del(editing.id); show('plans'); } };
 
+// ===== Registro de la carrera (para saber qué ha pasado) =====
+function logEvent(txt) {
+  if (!Run.active) return;
+  Run.log.push({ t: Math.round(Run.elapsed), at: Date.now(), txt });
+  const el = $('#r-log'); if (el) el.innerHTML = Run.log.slice(-6).map(e => `<div>${fmtTime(e.t)} · ${esc(e.txt)}</div>`).join('');
+}
 // ===== Carrera =====
 const Run = {
   active: false, paused: false, plan: null, sim: false,
   distance: 0, elapsed: 0, lastTick: 0, points: [], last: null, fired: new Set(), lastKm: 0,
-  watchId: null, timer: null, wakeLock: null, recent: [],
+  watchId: null, timer: null, wakeLock: null, recent: [], log: [],
 };
 function renderRunView() {
   const plans = Plans.all(); const sel = $('#run-plan'); const cur = sel.value;
@@ -241,14 +249,14 @@ async function startSpotify() {
   Run.spotifyBusy = true; const el = $('#r-spotify');
   try {
     const d = await Spotify.play(Run.plan && Run.plan.playlist ? Run.plan.playlist.uri : undefined);
-    Run.spotifyPending = false; el.textContent = 'Spotify: sonando en ' + d.name; el.style.color = '';
+    Run.spotifyPending = false; Run.spotifyStarted = true; el.textContent = 'Spotify: sonando en ' + d.name; el.style.color = ''; logEvent('🎵 Spotify arrancado en ' + d.name);
   } catch (e) {
     if (e.noDevice) {
       Run.spotifyTries++;
       el.textContent = 'Spotify: abriendo Spotify en el móvil… dale al play si no suena y vuelve aquí.'; el.style.color = 'var(--bad)';
-      if (!Run.spotifyOpened) { Run.spotifyOpened = true; setTimeout(() => Spotify.openApp(Run.plan && Run.plan.playlist ? Run.plan.playlist.uri : null), 300); }
+      if (!Run.spotifyOpened) { Run.spotifyOpened = true; logEvent('🎵 Abriendo la app de Spotify'); setTimeout(() => Spotify.openApp(Run.plan && Run.plan.playlist ? Run.plan.playlist.uri : null), 300); }
       if (Run.spotifyTries > 40) { Run.spotifyPending = false; el.textContent = 'Spotify: no he podido arrancarlo. Pon tú la música en Spotify.'; }
-    } else { Run.spotifyPending = false; toast(e.message, 8000); el.textContent = e.message; el.style.color = 'var(--bad)'; }
+    } else { Run.spotifyPending = false; toast(e.message, 8000); el.textContent = e.message; el.style.color = 'var(--bad)'; logEvent('🎵 Error Spotify: ' + e.message); }
   } finally { Run.spotifyBusy = false; }
 }
 async function refreshSpotifyStatus() {
@@ -259,18 +267,19 @@ async function refreshSpotifyStatus() {
   catch (e) { el.textContent = 'Spotify: ' + e.message; el.style.color = 'var(--bad)'; }
 }
 async function acquireWakeLock() { try { Run.wakeLock = await navigator.wakeLock?.request('screen'); } catch {} }
-document.addEventListener('visibilitychange', () => { if (Run.active && document.visibilityState === 'visible') { acquireWakeLock(); startSpotify(); } });
+document.addEventListener('visibilitychange', () => { if (!Run.active) return; if (document.visibilityState === 'visible') { logEvent('👀 Corre vuelve a pantalla'); acquireWakeLock(); startSpotify(); } else logEvent('💤 Corre en segundo plano o pantalla apagada: GPS y audios parados'); });
 
 $('#btn-start').onclick = async () => {
   Player.unlock();
   const planId = $('#run-plan').value; Settings.set('lastPlan', planId);
   Object.assign(Run, { active: true, paused: false, plan: Plans.all().find(p => p.id === planId) || null, sim: $('#run-sim').checked,
-    distance: 0, elapsed: 0, lastTick: Date.now(), points: [], last: null, fired: new Set(), lastKm: 0, recent: [], startedAt: Date.now() });
+    distance: 0, elapsed: 0, lastTick: Date.now(), points: [], last: null, fired: new Set(), lastKm: 0, recent: [], log: [], startedAt: Date.now(), spotifyStarted: false, gotFix: false });
+  $('#r-log').innerHTML = ''; logEvent('▶️ Empezada' + (Run.plan ? ' con el plan ' + Run.plan.name : '') + (Run.sim ? ' (simulación)' : ''));
   $('#btn-start').hidden = true; $('#btn-pause').hidden = false; $('#btn-stop').hidden = false; $('#btn-pause').textContent = 'Pausa';
   renderRunView(); acquireWakeLock();
   if (!Run.sim) {
     if (!navigator.geolocation) { toast('Este navegador no tiene GPS'); }
-    else Run.watchId = navigator.geolocation.watchPosition(onPos, err => { $('#r-gps').textContent = 'GPS: ' + err.message; }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+    else Run.watchId = navigator.geolocation.watchPosition(onPos, err => { $('#r-gps').textContent = 'GPS: ' + err.message; logEvent('📍 Error GPS: ' + err.message); }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
   } else $('#r-gps').textContent = 'Simulación: 10x más rápido, al ritmo del plan';
   Run.timer = setInterval(tick, 1000);
   if (Spotify.connected()) { Run.spotifyPending = true; Run.spotifyOpened = false; Run.spotifyTries = 0; Run.spotifyTick = 0; startSpotify(); }
@@ -286,7 +295,7 @@ $('#btn-stop').onclick = async () => {
   if (Run.watchId != null) navigator.geolocation.clearWatch(Run.watchId);
   clearInterval(Run.timer); Run.active = false; try { Run.wakeLock?.release(); } catch {}
   $('#btn-start').hidden = false; $('#btn-pause').hidden = true; $('#btn-stop').hidden = true;
-  const run = { id: uid(), date: Run.startedAt, planName: Run.plan ? Run.plan.name : 'Carrera libre', distance: Run.distance, elapsed: Run.elapsed, points: Run.points, sim: Run.sim };
+  logEvent('⏹️ Terminada'); const run = { id: uid(), date: Run.startedAt, planName: Run.plan ? Run.plan.name : 'Carrera libre', distance: Run.distance, elapsed: Run.elapsed, points: Run.points, sim: Run.sim, log: Run.log };
   if (run.distance > 50) { await DB.put('runs', run); toast('Carrera guardada'); }
   Player.speak(`Fin. ${(Run.distance / 1000).toFixed(2).replace('.', ',')} kilómetros en ${timeWords(Run.elapsed)}.`);
   renderRunView();
@@ -295,6 +304,7 @@ $('#btn-stop').onclick = async () => {
 function onPos(pos) {
   const { latitude: lat, longitude: lon, accuracy } = pos.coords;
   $('#r-gps').textContent = `GPS: ±${Math.round(accuracy)} m`;
+  if (!Run.gotFix && accuracy <= 35) { Run.gotFix = true; logEvent('📍 GPS fijado (±' + Math.round(accuracy) + ' m)'); }
   if (!Run.active || Run.paused || accuracy > 35) return; // descartamos lecturas malas
   const p = { lat, lon, t: pos.timestamp, acc: accuracy };
   if (Run.last) {
@@ -334,8 +344,8 @@ function checkTriggers(cur, avg) {
     for (const t of plan.triggers) {
       if (Run.fired.has(t.id)) continue;
       if ((t.type === 'distance' && km >= t.value) || (t.type === 'time' && min >= t.value)) {
-        Run.fired.add(t.id);
-        DB.get('audios', t.audioId).then(a => a && Player.enqueue({ audio: a }));
+        Run.fired.add(t.id); logEvent('⏱️ Disparador ' + (t.type === 'distance' ? 'km ' + t.value : 'min ' + t.value));
+        DB.get('audios', t.audioId).then(a => a ? Player.enqueue({ audio: a }) : logEvent('⚠️ El audio del disparador no está en este dispositivo'));
       }
     }
     const pending = plan.triggers.filter(t => !Run.fired.has(t.id)).map(t => ({ t, left: t.type === 'distance' ? t.value - km : (t.value - min) * 60 / (plan.paceSec || 360) })).sort((a, b) => a.left - b.left)[0];
@@ -361,11 +371,12 @@ async function renderHistory() {
     <div class="card" data-id="${r.id}">
       <div class="top"><strong>${esc(r.planName)}${r.sim ? ' (simulación)' : ''}</strong><span class="meta">${new Date(r.date).toLocaleDateString('es-ES')}</span></div>
       <div class="meta">${(r.distance / 1000).toFixed(2)} km · ${fmtTime(r.elapsed)} · ${fmtPace(r.elapsed / (r.distance / 1000))}/km</div>
-      <div class="row" style="margin-top:6px">${r.points.length > 1 ? '<button class="btn small" data-act="gpx">Descargar GPX (Strava)</button>' : ''}<button class="btn small danger" data-act="del">Borrar</button></div>
+      <div class="row" style="margin-top:6px">${r.points.length > 1 ? '<button class="btn small" data-act="gpx">Descargar GPX (Strava)</button>' : ''}${r.log && r.log.length ? '<button class="btn small" data-act="log">Ver registro</button>' : ''}<button class="btn small danger" data-act="del">Borrar</button></div>
     </div>`).join('') : '<p class="hint">Aquí aparecerán tus carreras.</p>';
   $('#history').querySelectorAll('.card').forEach(c => {
     const r = runs.find(x => x.id === c.dataset.id);
     c.querySelector('[data-act=gpx]')?.addEventListener('click', () => downloadGPX(r));
+    c.querySelector('[data-act=log]')?.addEventListener('click', () => alert(r.log.map(e => fmtTime(e.t) + ' · ' + e.txt).join('\n')));
     c.querySelector('[data-act=del]').onclick = async () => { if (confirm('¿Borrar esta carrera?')) { await DB.del('runs', r.id); renderHistory(); } };
   });
 }
