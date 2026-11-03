@@ -6,7 +6,8 @@ const Spotify = (() => {
   const LS = { client: 'sp_client_id', tok: 'sp_token', ver: 'sp_verifier' };
   const redirectUri = () => location.origin + location.pathname;
 
-  const clientId = () => localStorage.getItem(LS.client) || '';
+  const DEFAULT_CLIENT_ID = '0b4e26b7d13148e7bc9b595558dbab37'; // app "Corre" de David (el Client ID no es secreto)
+  const clientId = () => localStorage.getItem(LS.client) || DEFAULT_CLIENT_ID;
   const setClientId = id => localStorage.setItem(LS.client, id.trim());
   const token = () => { try { return JSON.parse(localStorage.getItem(LS.tok)); } catch { return null; } };
   const saveToken = t => {
